@@ -22,6 +22,6 @@ func NewMicroarrayDb(file string) (*MicroarrayDB, error) {
 	}, nil
 }
 
-func (genedb *MicroarrayDB) Close() {
-	genedb.db.Close()
+func (microarraydb *MicroarrayDB) Close() {
+	microarraydb.db.Close()
 }
