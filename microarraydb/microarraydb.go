@@ -17,7 +17,7 @@ func InitDB(path string) error {
 	return err
 }
 
-func FindSamples(array string, search string) (*[]microarray.Sample, error) {
+func FindSamples(array string, search string) (*[]microarray.MicroarraySample, error) {
 	if instance == nil {
 		return nil, fmt.Errorf("microarray db not initialized")
 	}
@@ -25,10 +25,10 @@ func FindSamples(array string, search string) (*[]microarray.Sample, error) {
 	return instance.FindSamples(array, search)
 }
 
-func Expression(array string, samples []string) (*microarray.ExpressionData, error) {
+func Expression(samples *microarray.MicroarraySamplesReq) (*microarray.ExpressionData, error) {
 	if instance == nil {
 		return nil, fmt.Errorf("microarray db not initialized")
 	}
 
-	return instance.Expression(array, samples)
+	return instance.Expression(samples)
 }
