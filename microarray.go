@@ -15,10 +15,14 @@ import (
 const ALL_SAMPLES_SQL = `SELECT uuid, array, name
 	FROM samples ORDER BY array, name`
 
+const FIND_SAMPLES_SQL = `SELECT uuid, array, name
+	FROM samples WHERE array = ?1 AND name LIKE ?2 ORDER BY array, name`
+
 type MicroarrayDB struct {
-	Path           String
-	Db             *sql.DB
-	AllSamplesStmt *sql.Stmt
+	Path            string
+	Db              *sql.DB
+	AllSamplesStmt  *sql.Stmt
+	FindSamplesStmt *sql.Stmt
 }
 
 type ExpressionDataIndex struct {
@@ -33,26 +37,55 @@ type ExpressionData struct {
 	Index  ExpressionDataIndex
 }
 
-func NewMicroarrayDb(file string) (*MicroarrayDB, error) {
-	db := sys.Must(sql.Open("sqlite3", file))
+type Sample struct {
+	Uuid  string
+	Array string
+	Name  string
+}
+
+func NewMicroarrayDb(dir string) (*MicroarrayDB, error) {
+	db := sys.Must(sql.Open("sqlite3", path.Join(dir, "samples.db")))
 
 	return &MicroarrayDB{Db: db,
-		Path:           file,
-		AllSamplesStmt: sys.Must(db.Prepare(ALL_SAMPLES_SQL)),
+		Path:            dir,
+		AllSamplesStmt:  sys.Must(db.Prepare(ALL_SAMPLES_SQL)),
+		FindSamplesStmt: sys.Must(db.Prepare(FIND_SAMPLES_SQL)),
 	}, nil
 }
 
-func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData, error) {
+func (microarraydb *MicroarrayDB) AllSamples() (*[]Sample, error) {
+
+	rows, err := microarraydb.AllSamplesStmt.Query()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rowsToSamples(rows)
+}
+
+func (microarraydb *MicroarrayDB) FindSamples(array string, search string) (*[]Sample, error) {
+
+	rows, err := microarraydb.FindSamplesStmt.Query(array, fmt.Sprintf("%%%s%%", search))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rowsToSamples(rows)
+}
+
+func (microarraydb *MicroarrayDB) Expression(array string, samples []string) (*ExpressionData, error) {
 	// let sample_ids = vec![
 	//     "0c3b8a19-1975-4c6e-aece-44a59c71719d",
 	//     "0c4f0c89-af16-484a-a408-8dfde25d8f10",
 	// ];
 
-	n_samples := len(samples)
+	nSamples := len(samples)
 
 	//eprintln!("{:?}", Path::new(&self.path).join("meta.tsv").to_str());
 	// open meta data
-	file, err := os.Open(path.Join(microarraydb.Path, "meta.tsv"))
+	file, err := os.Open(path.Join(microarraydb.Path, array, "meta.tsv"))
 
 	if err != nil {
 		return nil, err
@@ -67,17 +100,9 @@ func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData,
 		return nil, err
 	}
 
-	probe_ids := columnValues[1:len(columnValues)]
+	probeIds := columnValues[1:]
 
-	n_probes := len(probe_ids)
-
-	columnValues, err = reader.Read()
-
-	if err != nil {
-		return nil, err
-	}
-
-	entrez_ids := columnValues[1:len(columnValues)]
+	nProbes := len(probeIds)
 
 	columnValues, err = reader.Read()
 
@@ -85,18 +110,26 @@ func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData,
 		return nil, err
 	}
 
-	gene_symbols := columnValues[1:len(columnValues)]
+	entrezIds := columnValues[1:]
 
-	rowRecords := make([][]float64, n_samples)
-	sample_names := make([]string, n_samples)
+	columnValues, err = reader.Read()
+
+	if err != nil {
+		return nil, err
+	}
+
+	geneSymbols := columnValues[1:]
+
+	rowRecords := make([][]float64, nSamples)
+	sampleNames := make([]string, nSamples)
 
 	// let mut rdr = csv::ReaderBuilder::new()
 	//     .has_headers(true)
 	//     .delimiter(b'\t')
 	//     .from_reader(file);
 
-	for _, sample_id := range samples {
-		file, err := os.Open(path.Join(microarraydb.Path, fmt.Sprintf("%s.tsv", sample_id)))
+	for _, sample := range samples {
+		file, err := os.Open(path.Join(microarraydb.Path, fmt.Sprintf("%s.tsv", sample)))
 
 		if err != nil {
 			return nil, err
@@ -111,18 +144,20 @@ func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData,
 			return nil, err
 		}
 
-		sample_names = append(sample_names, columnValues[0])
+		sampleNames = append(sampleNames, columnValues[0])
 
 		for {
 			columnValues, err := reader.Read()
-			if err != nil {
-				break
-			}
+
 			if err == io.EOF {
 				break
 			}
 
-			rowRecords = append(rowRecords, sys.Map(columnValues[1:len(columnValues)], func(s string) float64 {
+			if err != nil {
+				return nil, err
+			}
+
+			rowRecords = append(rowRecords, sys.Map(columnValues[1:], func(s string) float64 {
 				v, err := strconv.ParseFloat(s, 64)
 
 				if err != nil {
@@ -135,12 +170,12 @@ func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData,
 	}
 
 	data := ExpressionData{
-		Exp:    make([][]float64, n_probes),
-		Header: sample_names,
+		Exp:    make([][]float64, nProbes),
+		Header: sampleNames,
 		Index: ExpressionDataIndex{
-			probe_ids,
-			entrez_ids,
-			gene_symbols,
+			ProbeIds:    probeIds,
+			EntrezIds:   entrezIds,
+			GeneSymbols: geneSymbols,
 		},
 	}
 
@@ -148,8 +183,10 @@ func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData,
 	// array
 	//let mut data:Vec<Vec<f64>> = vec![vec![0.0; n_samples]; n_probes] ;
 
-	for row := range n_probes {
-		for col := range n_samples {
+	for row := range nProbes {
+		data.Exp[row] = make([]float64, nSamples)
+
+		for col := range nSamples {
 			data.Exp[row][col] = rowRecords[col][row]
 		}
 
@@ -178,4 +215,27 @@ func (microarraydb *MicroarrayDB) Expression(samples []string) (*ExpressionData,
 
 func (microarraydb *MicroarrayDB) Close() {
 	microarraydb.Db.Close()
+}
+
+func rowsToSamples(rows *sql.Rows) (*[]Sample, error) {
+	var uuid string
+	var array string
+	var name string
+
+	samples := []Sample{}
+
+	defer rows.Close()
+
+	for rows.Next() {
+
+		err := rows.Scan(&uuid, &array, &name)
+
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		samples = append(samples, Sample{uuid, array, name})
+	}
+
+	return &samples, nil
 }
