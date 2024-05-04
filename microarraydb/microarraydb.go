@@ -17,12 +17,12 @@ func InitDB(path string) error {
 	return err
 }
 
-func FindSamples(array string, search string) (*[]microarray.MicroarraySample, error) {
+func FindSamples(platform *microarray.Platform, search string) (*microarray.MicroarraySamples, error) {
 	if instance == nil {
 		return nil, fmt.Errorf("microarray db not initialized")
 	}
 
-	return instance.FindSamples(array, search)
+	return instance.FindSamples(platform, search)
 }
 
 func Expression(samples *microarray.MicroarraySamplesReq) (*microarray.ExpressionData, error) {

@@ -73,8 +73,6 @@ func NewMicroarrayDb(dir string) (*MicroarrayDB, error) {
 }
 
 func (microarraydb *MicroarrayDB) AllPlatforms() (*[]Platform, error) {
-	var uuid string
-	var name string
 
 	rows, err := microarraydb.AllPlatformsStmt.Query()
 
@@ -82,25 +80,26 @@ func (microarraydb *MicroarrayDB) AllPlatforms() (*[]Platform, error) {
 		return nil, err
 	}
 
-	samples := []MicroarraySample{}
+	platforms := []Platform{}
 
 	defer rows.Close()
 
 	for rows.Next() {
+		var platform Platform
 
-		err := rows.Scan(&uuid, &array, &name)
+		err := rows.Scan(&platform.Uuid, &platform.Name)
 
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		samples = append(samples, MicroarraySample{uuid, name})
+		platforms = append(platforms, platform)
 	}
 
-	return &MicroarraySamples{platform, samples}, nil
+	return &platforms, nil
 }
 
-func (microarraydb *MicroarrayDB) AllSamples() (*[]MicroarraySample, error) {
+func (microarraydb *MicroarrayDB) AllSamples(platform *Platform) (*MicroarraySamples, error) {
 
 	rows, err := microarraydb.AllSamplesStmt.Query()
 
@@ -108,7 +107,7 @@ func (microarraydb *MicroarrayDB) AllSamples() (*[]MicroarraySample, error) {
 		return nil, err
 	}
 
-	return rowsToSamples(rows)
+	return rowsToSamples(platform, rows)
 }
 
 func (microarraydb *MicroarrayDB) FindSamples(platform *Platform, search string) (*MicroarraySamples, error) {
