@@ -1,7 +1,7 @@
 package microarraydb
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/antonybholmes/go-microarray"
 )
@@ -19,7 +19,7 @@ func InitDB(path string) error {
 
 func FindSamples(platform *microarray.Platform, search string) (*microarray.MicroarraySamples, error) {
 	if instance == nil {
-		return nil, fmt.Errorf("microarray db not initialized")
+		return nil, errors.New("microarray db not initialized")
 	}
 
 	return instance.FindSamples(platform, search)
@@ -27,7 +27,7 @@ func FindSamples(platform *microarray.Platform, search string) (*microarray.Micr
 
 func Expression(samples *microarray.MicroarraySamplesReq) (*microarray.ExpressionData, error) {
 	if instance == nil {
-		return nil, fmt.Errorf("microarray db not initialized")
+		return nil, errors.New("microarray db not initialized")
 	}
 
 	return instance.Expression(samples)
